@@ -8,7 +8,7 @@ let package = Package(
         .library(name: "NumbersKit", targets: ["NumbersKit"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0")
+        .package(path: "../Vendor/swift-protobuf")
     ],
     targets: [
         .target(
