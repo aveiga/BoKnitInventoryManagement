@@ -29,7 +29,17 @@ struct PurchaseHistoryRowView: View {
                     .foregroundStyle(BKColor.ink2)
             }
 
-            Spacer()
+            Spacer(minLength: 6)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(purchase.lineTotal.map(BKCurrency.string) ?? "—")
+                    .bkMonoLabel(size: 11, weight: .bold)
+                    .foregroundStyle(BKColor.ink)
+                Text(purchase.unitPrice.map { "\(BKCurrency.string($0)) ea" } ?? "no price")
+                    .bkMonoLabel(size: 8)
+                    .foregroundStyle(BKColor.ink2)
+            }
+            .fixedSize()
 
             Text("×\(purchase.quantity)")
                 .bkMonoLabel(size: 11, weight: .bold)

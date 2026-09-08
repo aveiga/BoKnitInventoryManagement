@@ -11,6 +11,17 @@ struct InventoryListView: View {
 
     private static let lowStockThreshold = 2
 
+    /// Euro value of everything on hand. Products the last import couldn't price
+    /// contribute nothing, so this reads low rather than wrong when the
+    /// "Produtos" sheet is missing a column.
+    private var stockValue: Decimal {
+        inventoryItems.reduce(Decimal.zero) { $0 + ($1.stockValue ?? 0) }
+    }
+
+    private var unpricedItemCount: Int {
+        inventoryItems.count { $0.unitPrice == nil }
+    }
+
     private var filteredItems: [InventoryItem] {
         inventoryItems
             .filter { showLowStockOnly ? $0.quantity <= Self.lowStockThreshold : true }
@@ -35,11 +46,18 @@ struct InventoryListView: View {
                                 Text("skus").bkMonoLabel(size: 9).foregroundStyle(BKColor.ink2)
                             }
                         }
+                        BKTotalDisplay(
+                            label: "stock value",
+                            amount: BKCurrency.string(stockValue),
+                            caption: unpricedItemCount > 0 ? "\(unpricedItemCount) unpriced" : nil
+                        )
+                        .padding(.top, 14)
+
                         Toggle(isOn: $showLowStockOnly.animation()) {
                             Text("low stock only").bkMonoLabel().foregroundStyle(BKColor.ink2)
                         }
                         .toggleStyle(BKInlineToggleStyle())
-                        .padding(.top, 14)
+                        .padding(.top, 10)
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 6)

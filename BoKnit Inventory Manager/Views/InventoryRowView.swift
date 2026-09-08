@@ -24,12 +24,17 @@ struct InventoryRowView: View {
 
             Spacer()
 
-            BKDimmedNumber(
-                value: max(0, item.quantity),
-                minDigits: 2,
-                size: 22,
-                brightColor: isLowOrOut ? BKColor.orange : BKColor.ink
-            )
+            VStack(alignment: .trailing, spacing: 2) {
+                BKDimmedNumber(
+                    value: max(0, item.quantity),
+                    minDigits: 2,
+                    size: 20,
+                    brightColor: isLowOrOut ? BKColor.orange : BKColor.ink
+                )
+                Text(item.unitPrice.map(BKCurrency.string) ?? "no price")
+                    .bkMonoLabel(size: 9)
+                    .foregroundStyle(BKColor.ink2)
+            }
         }
         .padding(.horizontal, 13)
         .frame(height: 56)

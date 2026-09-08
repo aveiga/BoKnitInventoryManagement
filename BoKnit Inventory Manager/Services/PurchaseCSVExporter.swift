@@ -14,7 +14,7 @@ enum PurchaseCSVExporter {
     }()
 
     static func csv(for purchases: [Purchase]) -> Data {
-        var lines = ["Date,Time,Product,Color,Buyer,Quantity"]
+        var lines = ["Date,Time,Product,Color,Buyer,Quantity,Unit Price EUR,Line Total EUR,Order"]
         for purchase in purchases {
             let fields = [
                 dateFormatter.string(from: purchase.timestamp),
@@ -22,7 +22,10 @@ enum PurchaseCSVExporter {
                 purchase.productName,
                 purchase.colorName,
                 purchase.buyerName ?? "",
-                "\(purchase.quantity)"
+                "\(purchase.quantity)",
+                purchase.unitPrice.map(BKCurrency.csvString) ?? "",
+                purchase.lineTotal.map(BKCurrency.csvString) ?? "",
+                purchase.purchaseGroupID?.uuidString ?? ""
             ]
             lines.append(fields.map(quoted).joined(separator: ","))
         }

@@ -39,6 +39,32 @@ struct PurchaseHistoryListView: View {
         filteredPurchases.reduce(0) { $0 + $1.quantity }
     }
 
+    /// Distinct orders, not lines: a purchase of three products is one order.
+    /// Rows recorded before purchases could hold several products carry no
+    /// group, so each of those counts on its own.
+    private var orderCount: Int {
+        var groups = Set<UUID>()
+        var ungrouped = 0
+        for purchase in filteredPurchases {
+            if let groupID = purchase.purchaseGroupID {
+                groups.insert(groupID)
+            } else {
+                ungrouped += 1
+            }
+        }
+        return groups.count + ungrouped
+    }
+
+    /// Euro value of the filtered purchases. Lines recorded without a price
+    /// contribute nothing.
+    private var revenue: Decimal {
+        filteredPurchases.reduce(Decimal.zero) { $0 + ($1.lineTotal ?? 0) }
+    }
+
+    private var unpricedLineCount: Int {
+        filteredPurchases.count { $0.unitPrice == nil }
+    }
+
     private var uniqueBuyerCount: Int {
         Set(filteredPurchases.compactMap { $0.buyerName?.isEmpty == false ? $0.buyerName : nil }).count
     }
@@ -118,13 +144,22 @@ struct PurchaseHistoryListView: View {
                         HStack(spacing: 0) {
                             statColumn(label: "units out", value: "\(unitsOut)")
                             Rectangle().fill(BKColor.insetLine).frame(width: 1).padding(.vertical, 12)
-                            statColumn(label: "orders", value: "\(filteredPurchases.count)")
+                            statColumn(label: "orders", value: "\(orderCount)")
                             Rectangle().fill(BKColor.insetLine).frame(width: 1).padding(.vertical, 12)
                             statColumn(label: "buyers", value: "\(uniqueBuyerCount)")
                         }
                         .frame(height: 58)
                         .background(RoundedRectangle(cornerRadius: 3).fill(BKColor.inset))
                         .padding(.top, 14)
+
+                        BKTotalDisplay(
+                            label: "revenue",
+                            amount: BKCurrency.string(revenue),
+                            caption: unpricedLineCount > 0
+                                ? "\(unpricedLineCount) line\(unpricedLineCount == 1 ? "" : "s") unpriced"
+                                : nil
+                        )
+                        .padding(.top, 8)
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 6)

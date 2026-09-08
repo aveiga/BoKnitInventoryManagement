@@ -85,7 +85,7 @@ struct InventoryImportView: View {
                                 .bkRowTitle(size: 14)
                                 .foregroundStyle(BKColor.ink)
                                 .lineLimit(1)
-                            Text("sheet “Inventário” · \(preview.rows.count) rows")
+                            Text("sheet “Inventário” · \(preview.rows.count) rows · \(preview.pricedProductCount)/\(preview.productCount) priced")
                                 .bkMonoLabel(size: 9)
                                 .foregroundStyle(BKColor.ink2)
                         }
@@ -108,6 +108,11 @@ struct InventoryImportView: View {
                         BKStatTile(label: "new", value: "\(preview.newCount)", valueColor: BKColor.orange)
                         BKStatTile(label: "updated", value: "\(preview.updatedCount)")
                         BKStatTile(label: "same", value: "\(preview.unchangedCount)", valueColor: Color(hex: 0x9A9AA0))
+                    }
+
+                    if !preview.unpricedProductNames.isEmpty {
+                        unpricedNotice(preview.unpricedProductNames)
+                            .padding(.top, 4)
                     }
                 }
                 .padding(.top, 22)
@@ -154,6 +159,28 @@ struct InventoryImportView: View {
             }
             .padding(.horizontal, 20)
         }
+    }
+
+    /// Products are priced by matching their "Inventário" column name against a
+    /// "Produtos" column name, so a product spelled differently in the two
+    /// sheets arrives with no price. Naming them here is the only way the user
+    /// finds out which columns need renaming.
+    private func unpricedNotice(_ names: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 9) {
+                Rectangle().fill(BKColor.orange).frame(width: 3)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(names.count) product(s) have no price — no column with the same name on the “Produtos” sheet.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BKColor.ink2)
+                    Text(names.joined(separator: " · "))
+                        .bkMonoLabel(size: 9)
+                        .foregroundStyle(BKColor.ink)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private func handleFileSelection(_ result: Result<URL, Error>) {

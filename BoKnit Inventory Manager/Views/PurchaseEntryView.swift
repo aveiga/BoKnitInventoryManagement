@@ -8,6 +8,31 @@ struct PurchaseEntryView: View {
     @Query(sort: \Purchase.timestamp, order: .reverse)
     private var purchases: [Purchase]
 
+    /// One product+colour the shopper is buying. A purchase is a list of these,
+    /// committed together as a single order.
+    ///
+    /// The line refers to its item by identifier rather than holding the model,
+    /// so an import that removes an item while a purchase is half-built drops
+    /// the line instead of leaving a dangling reference behind.
+    private struct PurchaseLine: Identifiable {
+        let id = UUID()
+        let itemID: PersistentIdentifier
+        var quantity: Int
+    }
+
+    /// A line paired with the item it points at, skipping lines whose item is
+    /// no longer in the store.
+    private struct ResolvedLine: Identifiable {
+        let line: PurchaseLine
+        let item: InventoryItem
+
+        var id: UUID { line.id }
+        var quantity: Int { line.quantity }
+        var unitPrice: Decimal? { item.unitPrice }
+        var total: Decimal? { item.unitPrice.map { $0 * Decimal(quantity) } }
+    }
+
+    @State private var lines: [PurchaseLine] = []
     @State private var selectedProductName: String?
     @State private var selectedColorName: String?
     @State private var quantity = 1
@@ -31,8 +56,40 @@ struct PurchaseEntryView: View {
         colorsForSelectedProduct.first { $0.colorName == selectedColorName }
     }
 
+    private var resolvedLines: [ResolvedLine] {
+        let itemsByID = Dictionary(
+            inventoryItems.map { ($0.persistentModelID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return lines.compactMap { line in
+            itemsByID[line.itemID].map { ResolvedLine(line: line, item: $0) }
+        }
+    }
+
+    /// Stock left for an item once what's already in the purchase is set aside,
+    /// so two lines of the same product+colour can't oversell it between them.
+    private func remainingStock(for item: InventoryItem) -> Int {
+        let claimed = lines
+            .filter { $0.itemID == item.persistentModelID }
+            .reduce(0) { $0 + $1.quantity }
+        return max(0, item.quantity - claimed)
+    }
+
     private var maxQuantity: Int {
-        max(0, selectedInventoryItem?.quantity ?? 0)
+        guard let selectedInventoryItem else { return 0 }
+        return remainingStock(for: selectedInventoryItem)
+    }
+
+    private var unitCount: Int {
+        resolvedLines.reduce(0) { $0 + $1.quantity }
+    }
+
+    private var purchaseTotal: Decimal {
+        resolvedLines.reduce(Decimal.zero) { $0 + ($1.total ?? 0) }
+    }
+
+    private var unpricedLineCount: Int {
+        resolvedLines.count { $0.unitPrice == nil }
     }
 
     private var recentBuyerNames: [String] {
@@ -47,18 +104,11 @@ struct PurchaseEntryView: View {
         return result
     }
 
-    private var canConfirm: Bool {
-        selectedProductName != nil && selectedColorName != nil && quantity > 0
+    private var canAddLine: Bool {
+        selectedInventoryItem != nil && quantity > 0 && quantity <= maxQuantity
     }
 
-    private var completedStepCount: Int {
-        var count = 0
-        if selectedProductName != nil { count += 1 }
-        if selectedColorName != nil { count += 1 }
-        if quantity > 0 { count += 1 }
-        if !buyerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
-        return count
-    }
+    private var canConfirm: Bool { !resolvedLines.isEmpty }
 
     var body: some View {
         NavigationStack {
@@ -68,15 +118,22 @@ struct PurchaseEntryView: View {
                         .padding(.bottom, 14)
 
                     BKScreenTitleRow(title: "New Purchase") {
-                        Text("STEP \(completedStepCount)/4")
-                            .bkMonoLabel()
-                            .foregroundStyle(BKColor.orange)
+                        let lineCount = resolvedLines.count
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("in purchase")
+                                .bkMonoLabel(size: 9)
+                                .foregroundStyle(BKColor.ink2)
+                            Text("\(lineCount) line\(lineCount == 1 ? "" : "s") · \(unitCount) units")
+                                .bkMonoLabel(size: 9)
+                                .foregroundStyle(lineCount == 0 ? BKColor.ink2 : BKColor.orange)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 15) {
                         productSection
                         colorSection
                         quantitySection
+                        purchaseSection
                         buyerSection
                     }
                     .padding(.top, 16)
@@ -86,10 +143,14 @@ struct PurchaseEntryView: View {
             }
             .background(BKColor.chassis)
             .safeAreaInset(edge: .bottom) {
-                BKPrimaryButton(title: "Confirm Purchase", isDisabled: !canConfirm, action: confirmPurchase)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
-                    .background(BKColor.chassis)
+                BKPrimaryButton(
+                    title: canConfirm ? "Confirm · \(BKCurrency.string(purchaseTotal))" : "Confirm Purchase",
+                    isDisabled: !canConfirm,
+                    action: confirmPurchase
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+                .background(BKColor.chassis)
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $isShowingProductPicker) {
@@ -114,6 +175,7 @@ struct PurchaseEntryView: View {
                 newValue != nil ? .selection : nil
             }
             .sensoryFeedback(.selection, trigger: quantity)
+            .sensoryFeedback(.impact, trigger: lines.count)
             .sensoryFeedback(.success, trigger: confirmationTick)
         }
     }
@@ -153,11 +215,12 @@ struct PurchaseEntryView: View {
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(colorsForSelectedProduct) { item in
+                    let available = remainingStock(for: item)
                     BKSwatchTile(
                         swatch: BKColorSwatch.color(for: item.colorName),
-                        label: String(format: "%02d", max(0, item.quantity)),
+                        label: String(format: "%02d", available),
                         isSelected: item.colorName == selectedColorName,
-                        isEmpty: item.quantity <= 0
+                        isEmpty: available <= 0
                     ) {
                         selectedColorName = item.colorName
                     }
@@ -170,7 +233,7 @@ struct PurchaseEntryView: View {
 
     private var quantitySection: some View {
         VStack(alignment: .leading, spacing: 7) {
-            BKSectionLabel(index: 3, title: "quantity", trailing: selectedColorName != nil ? "max \(maxQuantity)" : nil)
+            BKSectionLabel(index: 3, title: "quantity", trailing: quantityTrailingLabel)
 
             HStack(spacing: 8) {
                 BKKeyButton(systemImage: "minus", isDisabled: selectedColorName == nil || quantity <= 1) {
@@ -182,12 +245,78 @@ struct PurchaseEntryView: View {
                 }
             }
             .opacity(selectedColorName == nil ? 0.4 : 1)
+
+            BKSecondaryButton(
+                title: addLineTitle,
+                systemImage: "plus",
+                isDisabled: !canAddLine,
+                action: addLine
+            )
+            .padding(.top, 2)
+        }
+    }
+
+    private var quantityTrailingLabel: String? {
+        guard let item = selectedInventoryItem else { return nil }
+        let stock = "max \(maxQuantity)"
+        guard let price = item.unitPrice else { return "no price · \(stock)" }
+        return "\(BKCurrency.string(price)) ea · \(stock)"
+    }
+
+    private var addLineTitle: String {
+        guard let item = selectedInventoryItem, quantity > 0,
+              let price = item.unitPrice else { return "Add to purchase" }
+        return "Add to purchase · \(BKCurrency.string(price * Decimal(quantity)))"
+    }
+
+    private var purchaseSection: some View {
+        let currentLines = resolvedLines
+        return VStack(alignment: .leading, spacing: 7) {
+            BKSectionLabel(
+                index: 4,
+                title: "this purchase",
+                trailing: currentLines.isEmpty ? nil : "\(unitCount) units"
+            )
+
+            if currentLines.isEmpty {
+                HStack(spacing: 9) {
+                    Rectangle().fill(BKColor.line).frame(width: 3, height: 22)
+                    Text("Nothing added yet. Pick a product, colour, and quantity, then add it above.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BKColor.ink2)
+                }
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(currentLines) { line in
+                        PurchaseLineRow(
+                            productName: line.item.productName,
+                            colorName: line.item.colorName,
+                            quantity: line.quantity,
+                            unitPrice: line.unitPrice,
+                            total: line.total
+                        ) {
+                            withAnimation {
+                                lines.removeAll { $0.id == line.id }
+                            }
+                        }
+                    }
+                }
+
+                BKTotalDisplay(
+                    label: "purchase total",
+                    amount: BKCurrency.string(purchaseTotal),
+                    caption: unpricedLineCount > 0
+                        ? "\(unpricedLineCount) line\(unpricedLineCount == 1 ? "" : "s") unpriced"
+                        : nil
+                )
+                .padding(.top, 2)
+            }
         }
     }
 
     private var buyerSection: some View {
         VStack(alignment: .leading, spacing: 7) {
-            BKSectionLabel(index: 4, title: "bought by (opt)")
+            BKSectionLabel(index: 5, title: "bought by (opt)")
 
             TextField("Name", text: $buyerName)
                 .bkRowTitle(size: 15)
@@ -220,36 +349,59 @@ struct PurchaseEntryView: View {
         }
     }
 
-    private func confirmPurchase() {
-        guard let selectedProductName, let selectedColorName else { return }
+    /// Moves the current product/colour/quantity selection into the purchase.
+    /// Adding the same product+colour twice tops up the existing line rather
+    /// than listing it twice.
+    private func addLine() {
+        guard let item = selectedInventoryItem, quantity > 0, quantity <= maxQuantity else { return }
 
-        let matchedItem = selectedInventoryItem
-        matchedItem?.quantity -= quantity
-        matchedItem?.lastUpdatedAt = .now
+        withAnimation {
+            if let index = lines.firstIndex(where: { $0.itemID == item.persistentModelID }) {
+                lines[index].quantity += quantity
+            } else {
+                lines.append(PurchaseLine(itemID: item.persistentModelID, quantity: quantity))
+            }
+        }
+
+        // Keep the product selected — buying several colours of one product is
+        // the common case — but clear the colour so the next pick starts fresh.
+        selectedColorName = nil
+        quantity = 1
+    }
+
+    private func confirmPurchase() {
+        let committedLines = resolvedLines
+        guard !committedLines.isEmpty else { return }
 
         let trimmedBuyer = buyerName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let purchase = Purchase(
-            productName: selectedProductName,
-            colorName: selectedColorName,
-            quantity: quantity,
-            buyerName: trimmedBuyer.isEmpty ? nil : trimmedBuyer,
-            inventoryItem: matchedItem
-        )
-        modelContext.insert(purchase)
+        let timestamp = Date.now
+        let groupID = UUID()
+        let total = purchaseTotal
+        let lineCount = committedLines.count
+
+        for line in committedLines {
+            line.item.quantity -= line.quantity
+            line.item.lastUpdatedAt = timestamp
+            modelContext.insert(Purchase(
+                timestamp: timestamp,
+                productName: line.item.productName,
+                colorName: line.item.colorName,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                buyerName: trimmedBuyer.isEmpty ? nil : trimmedBuyer,
+                purchaseGroupID: groupID,
+                inventoryItem: line.item
+            ))
+        }
         confirmationTick += 1
 
-        let quantityDescription: String
-        if let quantity = matchedItem?.quantity {
-            quantityDescription = " · \(selectedColorName) now at \(quantity)"
-        } else {
-            quantityDescription = ""
-        }
-        showToast("Recorded: \(selectedProductName)\(quantityDescription)")
+        showToast("Recorded \(lineCount) line\(lineCount == 1 ? "" : "s") · \(BKCurrency.string(total))")
 
-        self.selectedProductName = nil
-        self.selectedColorName = nil
-        self.quantity = 1
-        self.buyerName = ""
+        lines = []
+        selectedProductName = nil
+        selectedColorName = nil
+        quantity = 1
+        buyerName = ""
     }
 
     private func showToast(_ message: String) {
@@ -262,6 +414,67 @@ struct PurchaseEntryView: View {
                 toastMessage = nil
             }
         }
+    }
+}
+
+/// One line of the purchase being built, with its unit price, line total, and a
+/// key to take it back out.
+private struct PurchaseLineRow: View {
+    let productName: String
+    let colorName: String
+    let quantity: Int
+    let unitPrice: Decimal?
+    let total: Decimal?
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 11) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(BKColorSwatch.color(for: colorName))
+                .frame(width: 4, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(productName)
+                    .bkRowTitle(size: 13)
+                    .foregroundStyle(BKColor.ink)
+                    .lineLimit(1)
+                Text(unitPrice.map { "\(colorName) · \(BKCurrency.string($0)) × \(quantity)" }
+                    ?? "\(colorName) · no price × \(quantity)")
+                    .bkMonoLabel(size: 9)
+                    .foregroundStyle(unitPrice == nil ? BKColor.orange : BKColor.ink2)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 6)
+
+            Text(total.map(BKCurrency.string) ?? "—")
+                .bkMonoLabel(size: 11, weight: .bold)
+                .foregroundStyle(BKColor.ink)
+                .fixedSize()
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(BKColor.ink2)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 2).fill(BKColor.panel2)
+                            RoundedRectangle(cornerRadius: 2).strokeBorder(BKColor.line, lineWidth: 1)
+                        }
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(productName) \(colorName)")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 56)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 3).fill(BKColor.panel)
+                RoundedRectangle(cornerRadius: 3).strokeBorder(BKColor.line, lineWidth: 1)
+            }
+        )
     }
 }
 

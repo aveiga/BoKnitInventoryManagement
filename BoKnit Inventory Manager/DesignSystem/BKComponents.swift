@@ -149,6 +149,79 @@ struct BKPrimaryButton: View {
     }
 }
 
+/// A neutral full-width key for a screen's repeatable action — "add to
+/// purchase" — with the same proportions as `BKPrimaryButton` but without
+/// claiming the orange, which stays reserved for the one confirming action.
+struct BKSecondaryButton: View {
+    let title: String
+    var systemImage: String = "plus"
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(.system(size: 13, weight: .bold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(BKColor.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 16)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(BKColor.orange)
+                    .padding(.trailing, 18)
+            }
+            .frame(height: 48)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 3).fill(BKColor.line).offset(y: 2)
+                RoundedRectangle(cornerRadius: 3).fill(BKColor.panel)
+                RoundedRectangle(cornerRadius: 3).strokeBorder(BKColor.line, lineWidth: 1)
+            }
+        )
+        .opacity(isDisabled ? 0.45 : 1)
+    }
+}
+
+/// A wide dark inset readout for a money total — the same "LCD" surface as
+/// `BKStepperDisplay`, with the amount right-aligned. `caption` carries a
+/// warning under the label (e.g. products with no price).
+struct BKTotalDisplay: View {
+    let label: String
+    let amount: String
+    var caption: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(label)
+                    .bkMonoLabel(size: 8)
+                    .foregroundStyle(BKColor.insetLabel)
+                if let caption {
+                    Text(caption)
+                        .bkMonoLabel(size: 8)
+                        .foregroundStyle(BKColor.orange)
+                }
+            }
+            Spacer(minLength: 8)
+            Text(amount)
+                .bkStatNumber(size: 26)
+                .foregroundStyle(BKColor.insetInk)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 66)
+        .background(RoundedRectangle(cornerRadius: 3).fill(BKColor.inset))
+    }
+}
+
 /// A square key with an SF Symbol — used for the quantity stepper's − / + .
 struct BKKeyButton: View {
     let systemImage: String
