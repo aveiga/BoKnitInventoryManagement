@@ -1,0 +1,9 @@
+{
+  "id" : "b2c6dc91-3b3e-4bae-af44-74f500b812db",
+  "targets" : [
+    {
+      "id" : "dd78a8ca-6a35-4731-9338-271938025ccf",
+      "name" : "BoKnit Inventory Manager"
+    }
+  ]
+}
